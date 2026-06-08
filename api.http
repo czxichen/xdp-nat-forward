@@ -1,0 +1,62 @@
+@host = http://127.0.0.1:8080
+@secret = forward-secret-key
+
+# HTTP Signature Authentication Requirements:
+# 1. X-Timestamp: Unix timestamp in seconds. The request must be within ±300s window.
+# 2. X-Signature: HMAC-SHA256 signature of `{timestamp}.{method}.{path}` in hex format.
+#
+# To generate the signature using bash/openssl:
+#   timestamp=$(date +%s)
+#   signature=$(echo -n "${timestamp}.GET./rules" | openssl dgst -sha256 -hmac "${secret}" | sed 's/^.* //')
+#   curl -H "X-Timestamp: $timestamp" -H "X-Signature: $signature" http://127.0.0.1:8080/rules
+
+### Get all forwarding rules
+# Returns a list of all currently configured NAT rules in the FORWARD_MAP.
+# Note: You must calculate a new X-Timestamp and X-Signature for each request.
+GET {{host}}/rules
+X-Timestamp: 1780894902
+X-Signature: 0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b
+Accept: application/json
+
+###
+
+### Add a new forwarding rule
+# Registers a new forwarding mapping for the specified protocol and local port.
+# Also triggers ARP resolution to find the destination MAC address.
+# Signature payload format: "{timestamp}.POST./rules"
+POST {{host}}/rules
+X-Timestamp: 1780894902
+X-Signature: 0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b
+Content-Type: application/json
+
+{
+  "proto": "tcp",
+  "local_port": 1818,
+  "forward_ip": "192.168.4.96",
+  "forward_port": 18180
+}
+
+###
+
+### Delete a forwarding rule
+# Removes the rule mapping for the specified protocol and local port.
+# Signature payload format: "{timestamp}.DELETE./rules/tcp/1818"
+DELETE {{host}}/rules/tcp/1818
+X-Timestamp: 1780894902
+X-Signature: 0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b
+Accept: application/json
+
+###
+
+### Set TCP/UDP session timeout
+# Updates the session tracking cleanup timeout configurations for tcp or udp.
+# Signature payload format: "{timestamp}.POST./timeout"
+POST {{host}}/timeout
+X-Timestamp: 1780894902
+X-Signature: 0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b
+Content-Type: application/json
+
+{
+  "proto": "tcp",
+  "seconds": 300
+}
