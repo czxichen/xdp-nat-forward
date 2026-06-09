@@ -1,5 +1,6 @@
 mod cmd;
 mod http;
+mod manager_client;
 mod rule;
 mod utils;
 
@@ -36,6 +37,15 @@ struct Opt {
 
     #[clap(long)]
     rules_path: Option<String>,
+
+    #[clap(long)]
+    manager_url: Option<String>,
+
+    #[clap(long)]
+    node_id: Option<String>,
+
+    #[clap(long, default_value = "default")]
+    group: String,
 
     #[clap(subcommand)]
     command: Option<Command>,
@@ -181,6 +191,9 @@ async fn main() -> anyhow::Result<()> {
         addr,
         secret,
         rules_path,
+        manager_url,
+        node_id,
+        group,
         ..
     } = opt;
 
@@ -198,6 +211,22 @@ async fn main() -> anyhow::Result<()> {
         if let Err(e) = rule::load_and_restore_rules(&ebpf, path).await {
             warn!("Failed to restore NAT rules from {}: {:#}", path, e);
         }
+    }
+
+    // Connect to rules manager if URL is specified
+    if let Some(url) = manager_url {
+        let n_id = node_id.unwrap_or_else(|| {
+            std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|_| "node-unknown".to_string())
+        });
+        manager_client::spawn_manager_client(
+            url,
+            n_id,
+            group,
+            Arc::clone(&ebpf),
+            rules_path.clone(),
+        );
     }
 
     spawn_session_cleanup_task(Arc::clone(&ebpf), Arc::clone(&timeouts));

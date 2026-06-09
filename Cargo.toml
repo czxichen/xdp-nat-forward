@@ -1,10 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
-    "forward",
-    "forward-common",
-    "forward-ebpf",
-]
+members = ["forward", "forward-common", "forward-ebpf", "forward-manager"]
 default-members = ["forward", "forward-common"]
 
 [workspace.package]
