@@ -34,6 +34,9 @@ struct Opt {
     #[clap(long, default_value = "forward-secret-key")]
     secret: String,
 
+    #[clap(long, default_value = "rules.json")]
+    rules_path: String,
+
     #[clap(subcommand)]
     command: Option<Command>,
 }
@@ -177,6 +180,7 @@ async fn main() -> anyhow::Result<()> {
         socket,
         addr,
         secret,
+        rules_path,
         ..
     } = opt;
 
@@ -189,13 +193,31 @@ async fn main() -> anyhow::Result<()> {
 
     let ebpf = Arc::new(Mutex::new(ebpf));
 
+    // Restore persisted NAT rules
+    if let Err(e) = rule::load_and_restore_rules(&ebpf, &rules_path).await {
+        warn!("Failed to restore NAT rules from {}: {:#}", rules_path, e);
+    }
+
     spawn_session_cleanup_task(Arc::clone(&ebpf), Arc::clone(&timeouts));
 
     let mut socket_task =
-        cmd::spawn_uds_server(&socket, Arc::clone(&ebpf), Arc::clone(&timeouts)).await?;
+        cmd::spawn_uds_server(
+            &socket,
+            Arc::clone(&ebpf),
+            Arc::clone(&timeouts),
+            rules_path.clone(),
+        )
+        .await?;
 
     let mut http_task =
-        http::spawn_http_server(&addr, Arc::clone(&ebpf), Arc::clone(&timeouts), secret).await?;
+        http::spawn_http_server(
+            &addr,
+            Arc::clone(&ebpf),
+            Arc::clone(&timeouts),
+            secret,
+            rules_path,
+        )
+        .await?;
 
     info!("Waiting for Ctrl-C or server exit...");
 

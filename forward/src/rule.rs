@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Mutex;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ForwardRule {
     pub proto: u32,
     pub local_port: u32,
@@ -122,4 +122,58 @@ pub fn set_timeout(timeouts: &TimeoutsState, proto_str: &str, seconds: u64) -> a
         }
         _ => anyhow::bail!("invalid protocol (must be tcp or udp)"),
     }
+}
+
+pub fn save_rules(rules_path: &str, rules: &[ForwardRule]) -> anyhow::Result<()> {
+    if let Some(parent) = std::path::Path::new(rules_path).parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            std::fs::create_dir_all(parent).context("failed to create directory for rules file")?;
+        }
+    }
+    let file =
+        std::fs::File::create(rules_path).context("failed to create rules file for writing")?;
+    serde_json::to_writer_pretty(file, rules).context("failed to serialize rules to JSON")?;
+    return Ok(());
+}
+
+pub async fn load_and_restore_rules(
+    ebpf: &Mutex<aya::Ebpf>,
+    rules_path: &str,
+) -> anyhow::Result<()> {
+    if !std::path::Path::new(rules_path).exists() {
+        return Ok(());
+    }
+
+    let file = std::fs::File::open(rules_path).context("failed to open rules file for reading")?;
+    let rules: Vec<ForwardRule> =
+        serde_json::from_reader(file).context("failed to parse rules JSON")?;
+
+    for rule in rules {
+        let proto_str = if rule.proto == 6 { "tcp" } else { "udp" };
+        log::info!(
+            "Restoring persisted rule: {} {} -> {}:{}",
+            proto_str,
+            rule.local_port,
+            rule.forward_ip,
+            rule.forward_port
+        );
+        if let Err(e) = add_forward_rule(
+            ebpf,
+            proto_str,
+            rule.local_port,
+            &rule.forward_ip.to_string(),
+            rule.forward_port,
+        )
+        .await
+        {
+            log::warn!(
+                "Failed to restore rule {} {}: {:#}",
+                proto_str,
+                rule.local_port,
+                e
+            );
+        }
+    }
+
+    return Ok(());
 }

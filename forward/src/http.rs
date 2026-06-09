@@ -21,6 +21,7 @@ pub struct AppState {
     pub ebpf: Arc<Mutex<aya::Ebpf>>,
     pub timeouts: Arc<TimeoutsState>,
     pub secret: String,
+    pub rules_path: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -102,6 +103,9 @@ async fn add_rule(
     .await
     {
         Ok(mac) => {
+            if let Ok(rules) = list_forward_rules(&state.ebpf).await {
+                let _ = crate::rule::save_rules(&state.rules_path, &rules);
+            }
             let mac_str = format!(
                 "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
@@ -123,7 +127,12 @@ async fn delete_rule(
     Path((proto, local_port)): Path<(String, u32)>,
 ) -> Result<Json<String>, (StatusCode, String)> {
     match delete_forward_rule(&state.ebpf, &proto, local_port).await {
-        Ok(()) => Ok(Json("OK".to_string())),
+        Ok(()) => {
+            if let Ok(rules) = list_forward_rules(&state.ebpf).await {
+                let _ = crate::rule::save_rules(&state.rules_path, &rules);
+            }
+            Ok(Json("OK".to_string()))
+        }
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
             format!("failed to delete rule: {e:#}"),
@@ -230,6 +239,7 @@ pub async fn spawn_http_server(
     ebpf: Arc<Mutex<aya::Ebpf>>,
     timeouts: Arc<TimeoutsState>,
     secret: String,
+    rules_path: String,
 ) -> anyhow::Result<tokio::task::JoinHandle<()>> {
     if secret == "forward-secret-key" {
         log::warn!("Using default secret key 'forward-secret-key' is not secure in production!");
@@ -238,6 +248,7 @@ pub async fn spawn_http_server(
         ebpf,
         timeouts,
         secret,
+        rules_path,
     };
     let app = Router::new()
         .route("/rules", get(get_rules).post(add_rule))
