@@ -12,7 +12,7 @@ async fn handle_command(
     line: String,
     ebpf: &Mutex<aya::Ebpf>,
     timeouts: &TimeoutsState,
-    rules_path: &str,
+    rules_path: Option<&str>,
 ) -> String {
     let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.is_empty() {
@@ -38,8 +38,10 @@ async fn handle_command(
             match add_forward_rule(ebpf, proto_str, local_port, forward_ip_str, forward_port).await
             {
                 Ok(forward_mac) => {
-                    if let Ok(rules) = list_forward_rules(ebpf).await {
-                        let _ = crate::rule::save_rules(rules_path, &rules);
+                    if let Some(path) = rules_path {
+                        if let Ok(rules) = list_forward_rules(ebpf).await {
+                            let _ = crate::rule::save_rules(path, &rules);
+                        }
                     }
                     format!(
                         "OK: mapped {}:{} -> {}:{} ({:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x})\n",
@@ -70,8 +72,10 @@ async fn handle_command(
 
             match delete_forward_rule(ebpf, proto_str, local_port).await {
                 Ok(()) => {
-                    if let Ok(rules) = list_forward_rules(ebpf).await {
-                        let _ = crate::rule::save_rules(rules_path, &rules);
+                    if let Some(path) = rules_path {
+                        if let Ok(rules) = list_forward_rules(ebpf).await {
+                            let _ = crate::rule::save_rules(path, &rules);
+                        }
                     }
                     format!(
                         "OK: deleted forwarding mapping for {} port {}\n",
@@ -169,7 +173,7 @@ pub async fn spawn_uds_server(
     socket_path: &str,
     ebpf: Arc<Mutex<aya::Ebpf>>,
     timeouts: Arc<TimeoutsState>,
-    rules_path: String,
+    rules_path: Option<String>,
 ) -> anyhow::Result<tokio::task::JoinHandle<()>> {
     let _ = std::fs::remove_file(socket_path);
     let listener = UnixListener::bind(socket_path)
@@ -188,8 +192,13 @@ pub async fn spawn_uds_server(
                     let reader = TokioBufReader::new(rx);
                     let mut lines = reader.lines();
                     if let Ok(Some(line)) = lines.next_line().await {
-                        let response =
-                            handle_command(line, &ebpf_ref, &timeouts_ref, &rules_path_ref).await;
+                        let response = handle_command(
+                            line,
+                            &ebpf_ref,
+                            &timeouts_ref,
+                            rules_path_ref.as_deref(),
+                        )
+                        .await;
                         let _ = tx.write_all(response.as_bytes()).await;
                     }
                 });

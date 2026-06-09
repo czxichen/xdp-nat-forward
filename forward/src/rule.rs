@@ -177,3 +177,61 @@ pub async fn load_and_restore_rules(
 
     return Ok(());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_save_and_load_rules_serialization() {
+        let temp_dir = std::env::temp_dir().join("forward_tests");
+        let rules_path = temp_dir.join("rules_test.json");
+        let rules_path_str = rules_path.to_str().unwrap();
+
+        // 1. Create a dummy rule list
+        let rules = vec![
+            ForwardRule {
+                proto: 6,
+                local_port: 8080,
+                forward_ip: Ipv4Addr::new(192, 168, 1, 100),
+                forward_port: 80,
+                forward_mac: [0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
+            },
+            ForwardRule {
+                proto: 17,
+                local_port: 9090,
+                forward_ip: Ipv4Addr::new(10, 0, 0, 5),
+                forward_port: 90,
+                forward_mac: [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff],
+            },
+        ];
+
+        // 2. Save rules to the temp file path
+        let save_res = save_rules(rules_path_str, &rules);
+        assert!(save_res.is_ok(), "failed to save rules: {:?}", save_res.err());
+
+        // 3. Verify file exists
+        assert!(rules_path.exists());
+
+        // 4. Read back and check JSON deserialization content
+        let file = fs::File::open(rules_path_str).unwrap();
+        let loaded_rules: Vec<ForwardRule> = serde_json::from_reader(file).unwrap();
+        assert_eq!(loaded_rules.len(), 2);
+        assert_eq!(loaded_rules[0].proto, 6);
+        assert_eq!(loaded_rules[0].local_port, 8080);
+        assert_eq!(loaded_rules[0].forward_ip, Ipv4Addr::new(192, 168, 1, 100));
+        assert_eq!(loaded_rules[0].forward_port, 80);
+        assert_eq!(loaded_rules[0].forward_mac, [0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+
+        assert_eq!(loaded_rules[1].proto, 17);
+        assert_eq!(loaded_rules[1].local_port, 9090);
+        assert_eq!(loaded_rules[1].forward_ip, Ipv4Addr::new(10, 0, 0, 5));
+        assert_eq!(loaded_rules[1].forward_port, 90);
+        assert_eq!(loaded_rules[1].forward_mac, [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+
+        // Clean up temp file
+        let _ = fs::remove_file(rules_path_str);
+        let _ = fs::remove_dir(temp_dir);
+    }
+}

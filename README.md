@@ -73,6 +73,7 @@ sudo ./target/release/forward [FLAGS]
 - `-s, --socket <path>`: Local UDS path for CLI management socket (default: `/tmp/forward.sock`).
 - `-a, --addr <ip:port>`: Binding address for the HTTP API (default: `127.0.0.1:8080`).
 - `--secret <key>`: Shared secret key for HTTP signature authentication (default: `forward-secret-key`).
+- `--rules-path <path>`: Optional file path to persist configured NAT rules to a JSON file. If not set, rules are not persisted and will not be restored upon daemon restart.
 
 **Example Run Command:**
 ```bash

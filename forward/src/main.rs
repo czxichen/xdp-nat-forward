@@ -34,8 +34,8 @@ struct Opt {
     #[clap(long, default_value = "forward-secret-key")]
     secret: String,
 
-    #[clap(long, default_value = "rules.json")]
-    rules_path: String,
+    #[clap(long)]
+    rules_path: Option<String>,
 
     #[clap(subcommand)]
     command: Option<Command>,
@@ -193,9 +193,11 @@ async fn main() -> anyhow::Result<()> {
 
     let ebpf = Arc::new(Mutex::new(ebpf));
 
-    // Restore persisted NAT rules
-    if let Err(e) = rule::load_and_restore_rules(&ebpf, &rules_path).await {
-        warn!("Failed to restore NAT rules from {}: {:#}", rules_path, e);
+    // Restore persisted NAT rules if configured
+    if let Some(ref path) = rules_path {
+        if let Err(e) = rule::load_and_restore_rules(&ebpf, path).await {
+            warn!("Failed to restore NAT rules from {}: {:#}", path, e);
+        }
     }
 
     spawn_session_cleanup_task(Arc::clone(&ebpf), Arc::clone(&timeouts));
