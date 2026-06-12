@@ -19,7 +19,7 @@ export default function App() {
   const [nodes, setNodes] = useState<ConnectedNodeInfo[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'rules' | 'diff'>('rules');
+  const [activeTab, setActiveTab] = useState<'rules' | 'diff' | 'sessions'>('rules');
 
   // Rule Form State
   const [formProto, setFormProto] = useState<'tcp' | 'udp'>('tcp');
@@ -31,6 +31,60 @@ export default function App() {
   const [selectedNodeTargets, setSelectedNodeTargets] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+  // Session Query State
+  const [querySrcIp, setQuerySrcIp] = useState<string>('');
+  const [queryDstIp, setQueryDstIp] = useState<string>('');
+  const [sessionResults, setSessionResults] = useState<{
+    status: string;
+    sessions: { proto: string; src_port: number; dst_port: number; nat_port: number }[];
+    error_message?: string;
+  } | null>(null);
+  const [queryLoading, setQueryLoading] = useState<boolean>(false);
+  const [queryError, setQueryError] = useState<string | null>(null);
+
+  const handleQuerySessions = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedNodeId) {
+      setQueryError('Please select an agent node from the sidebar first.');
+      return;
+    }
+    if (!querySrcIp || !queryDstIp) {
+      setQueryError('Please enter both source IP and target IP.');
+      return;
+    }
+
+    setQueryLoading(true);
+    setQueryError(null);
+    setSessionResults(null);
+
+    try {
+      const res = await fetch('/api/sessions/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          node_id: selectedNodeId,
+          src_ip: querySrcIp,
+          dst_ip: queryDstIp,
+        }),
+      });
+
+      if (!res.ok) {
+        const errTxt = await res.text();
+        throw new Error(errTxt || 'Failed to query sessions');
+      }
+
+      const data = await res.json();
+      if (data.status === 'error') {
+        throw new Error(data.error_message || 'Node failed to query sessions');
+      }
+      setSessionResults(data);
+    } catch (err: any) {
+      setQueryError(err.message || 'Error communicating with manager');
+    } finally {
+      setQueryLoading(false);
+    }
+  };
 
   // Poll intervals
   useEffect(() => {
@@ -314,6 +368,21 @@ export default function App() {
               }}
             >
               📋 Rules Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('sessions')}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '8px',
+                border: activeTab === 'sessions' ? '1px solid rgba(6,182,212,0.4)' : '1px solid rgba(255,255,255,0.05)',
+                backgroundColor: activeTab === 'sessions' ? 'rgba(6,182,212,0.1)' : 'rgba(255,255,255,0.02)',
+                color: activeTab === 'sessions' ? '#06b6d4' : '#94a3b8',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+            >
+              🔍 Session Query
             </button>
             <button
               onClick={() => setActiveTab('diff')}
@@ -756,6 +825,116 @@ export default function App() {
                 </table>
               )}
 
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Session Query */}
+        {activeTab === 'sessions' && (
+          <div style={{ padding: '30px', display: 'flex', flexDirection: 'column', gap: '20px', flex: 1, overflowY: 'auto' }}>
+            <div className="glass-panel glow-border-cyan" style={{ padding: '20px' }}>
+              <div style={{ marginBottom: '20px' }}>
+                <h2 style={{ margin: 0, fontSize: '16px', color: '#fff' }}>
+                  Query Active NAT Sessions on <span style={{ color: '#22d3ee' }}>{selectedNodeId || 'NoneSelected'}</span>
+                </h2>
+                <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#64748b' }}>
+                  Enter source and destination IP addresses to inspect matching connection tracking entries in BPF maps in real-time.
+                </p>
+              </div>
+
+              <form onSubmit={handleQuerySessions} style={{ display: 'flex', gap: '15px', alignItems: 'flex-end', marginBottom: '20px', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '5px' }}>Source IP (Client IP)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 192.168.1.50"
+                    value={querySrcIp}
+                    onChange={(e) => setQuerySrcIp(e.target.value)}
+                    style={{ width: '90%', padding: '8px 12px', borderRadius: '6px', backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.05)', color: '#fff' }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '5px' }}>Target IP (Destination IP)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 192.168.1.100"
+                    value={queryDstIp}
+                    onChange={(e) => setQueryDstIp(e.target.value)}
+                    style={{ width: '90%', padding: '8px 12px', borderRadius: '6px', backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.05)', color: '#fff' }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={queryLoading}
+                  style={{
+                    padding: '8px 24px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: queryLoading ? '#475569' : 'linear-gradient(to right, #06b6d4, #3b82f6)',
+                    color: '#fff',
+                    fontWeight: 600,
+                    cursor: queryLoading ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 4px 12px rgba(6, 182, 212, 0.2)',
+                    height: '38px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {queryLoading ? '🔄 Querying Node...' : '🔍 Search Sessions'}
+                </button>
+              </form>
+
+              {queryError && (
+                <div style={{ padding: '12px 20px', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#f87171', fontSize: '14px', marginBottom: '20px' }}>
+                  ⚠️ {queryError}
+                </div>
+              )}
+
+              {sessionResults && (
+                <div className="slide-in">
+                  <h3 style={{ fontSize: '14px', color: '#fff', marginBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '8px' }}>
+                    Active Sessions Found ({sessionResults.sessions.length})
+                  </h3>
+
+                  {sessionResults.sessions.length === 0 ? (
+                    <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>
+                      No active tracked sessions match the query on this node.
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#64748b', fontSize: '12px', textTransform: 'uppercase' }}>
+                          <th style={{ padding: '12px 8px' }}>Protocol</th>
+                          <th style={{ padding: '12px 8px' }}>Source Port</th>
+                          <th style={{ padding: '12px 8px' }}>Target Port</th>
+                          <th style={{ padding: '12px 8px' }}>Translated NAT Port</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sessionResults.sessions.map((session, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', fontSize: '14px' }}>
+                            <td style={{ padding: '12px 8px' }}>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                backgroundColor: session.proto === 'tcp' ? 'rgba(34,211,238,0.1)' : 'rgba(168,85,247,0.1)',
+                                color: session.proto === 'tcp' ? '#22d3ee' : '#c084fc'
+                              }}>
+                                {session.proto}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 8px', fontWeight: 500 }}>{session.src_port}</td>
+                            <td style={{ padding: '12px 8px' }}>{session.dst_port}</td>
+                            <td style={{ padding: '12px 8px', color: '#22d3ee', fontWeight: 600 }}>{session.nat_port}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

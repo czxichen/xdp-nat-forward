@@ -16,11 +16,11 @@ use forward_common::{
 static FORWARD_MAP: HashMap<ForwardKey, ForwardVal> = HashMap::with_max_entries(1024, 0);
 
 #[map]
-static SESSION_MAP: HashMap<SessionKey, SessionVal> = HashMap::with_max_entries(16384, 0);
+static SESSION_MAP: HashMap<SessionKey, SessionVal> = HashMap::with_max_entries(1048576, 0);
 
 #[map]
 static REVERSE_SESSION_MAP: HashMap<RevSessionKey, RevSessionVal> =
-    HashMap::with_max_entries(16384, 0);
+    HashMap::with_max_entries(1048576, 0);
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
@@ -120,7 +120,7 @@ fn allocate_nat_port(
 ) -> Option<u16> {
     let hash = client_ip ^ target_ip ^ (client_port as u32) ^ (target_port as u32);
     for i in 0..5 {
-        let port = 32768 + ((hash + i) % 16384) as u16;
+        let port = 1024 + ((hash + i) % 64000) as u16;
         let rev_key = RevSessionKey {
             target_ip,
             nat_port: u16::to_be(port),

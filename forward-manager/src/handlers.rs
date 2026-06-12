@@ -75,6 +75,27 @@ pub async fn handle_socket(socket: axum::extract::ws::WebSocket, params: WsParam
                             error_message
                         );
                     }
+                    Ok(ClientMessage::QueryResponse {
+                        command_id,
+                        status,
+                        sessions,
+                        error_message,
+                    }) => {
+                        log::info!(
+                            "Query session response received: {} (status: {:?})",
+                            command_id,
+                            status
+                        );
+                        let mut pending = state.pending_queries.lock().await;
+                        if let Some(tx) = pending.remove(&command_id) {
+                            let val = serde_json::json!({
+                                "status": status,
+                                "sessions": sessions,
+                                "error_message": error_message,
+                            });
+                            let _ = tx.send(val);
+                        }
+                    }
                     Err(e) => {
                         log::error!("Error decoding client message: {e:#}");
                     }
@@ -205,4 +226,59 @@ pub async fn delete_rule(
     }
 
     Ok(Json(format!("Sent delete command to {} nodes", targets_sent)))
+}
+
+#[derive(Deserialize)]
+pub struct QuerySessionsRequestPayload {
+    pub node_id: String,
+    pub src_ip: String,
+    pub dst_ip: String,
+}
+
+pub async fn query_sessions(
+    State(state): State<AppState>,
+    Json(payload): Json<QuerySessionsRequestPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let command_id = format!("query-{}", tokio::time::Instant::now().elapsed().as_nanos());
+
+    // Send query command over WS
+    {
+        let mut nodes = state.nodes.lock().await;
+        if let Some(node) = nodes.get_mut(&payload.node_id) {
+            let command = serde_json::json!({
+                "type": "query_session",
+                "command_id": command_id,
+                "src_ip": payload.src_ip,
+                "dst_ip": payload.dst_ip,
+            });
+            let command_str = serde_json::to_string(&command).unwrap();
+            
+            // Register oneshot sender
+            {
+                let mut pending = state.pending_queries.lock().await;
+                pending.insert(command_id.clone(), tx);
+            }
+
+            log::info!("Sending query_session to node: {}", node.node_id);
+            if let Err(e) = node.ws_sender.send(axum::extract::ws::Message::Text(command_str.into())).await {
+                let mut pending = state.pending_queries.lock().await;
+                pending.remove(&command_id);
+                return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to send query to node: {e}")));
+            }
+        } else {
+            return Err((StatusCode::NOT_FOUND, "Node not connected".to_string()));
+        }
+    }
+
+    // Wait for response with a timeout
+    match tokio::time::timeout(std::time::Duration::from_secs(5), rx).await {
+        Ok(Ok(val)) => Ok(Json(val)),
+        Ok(Err(_)) => Err((StatusCode::INTERNAL_SERVER_ERROR, "Query channel closed unexpectedly".to_string())),
+        Err(_) => {
+            let mut pending = state.pending_queries.lock().await;
+            pending.remove(&command_id);
+            Err((StatusCode::GATEWAY_TIMEOUT, "Query timeout from node".to_string()))
+        }
+    }
 }

@@ -12,7 +12,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
 use types::AppState;
-use handlers::{ws_handler, get_nodes, add_rule, delete_rule};
+use handlers::{ws_handler, get_nodes, add_rule, delete_rule, query_sessions};
 
 #[derive(Parser, Debug)]
 #[clap(name = "forward-manager", about = "NAT Forward Rules Manager")]
@@ -36,6 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState {
         nodes: Arc::new(Mutex::new(HashMap::new())),
+        pending_queries: Arc::new(Mutex::new(HashMap::new())),
     };
 
     let serve_dir = ServeDir::new(&opt.static_dir)
@@ -46,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/nodes", get(get_nodes))
         .route("/api/rules/add", post(add_rule))
         .route("/api/rules/delete", post(delete_rule))
+        .route("/api/sessions/query", post(query_sessions))
         .fallback_service(serve_dir)
         .layer(CorsLayer::permissive())
         .with_state(state);

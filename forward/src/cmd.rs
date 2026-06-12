@@ -7,6 +7,8 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
+use aya::maps::HashMap;
+use forward_common::{SessionKey, SessionVal};
 
 async fn handle_command(
     line: String,
@@ -129,6 +131,54 @@ async fn handle_command(
                 Err(e) => format!("ERR: {e:#}\n"),
             }
         }
+        "QUERY-SESSION" => {
+            if parts.len() != 3 {
+                return "ERR: QUERY-SESSION requires 2 arguments: src_ip, dst_ip\n".to_string();
+            }
+            let src_ip: std::net::Ipv4Addr = match parts[1].parse() {
+                Ok(ip) => ip,
+                Err(_) => return "ERR: invalid src_ip\n".to_string(),
+            };
+            let dst_ip: std::net::Ipv4Addr = match parts[2].parse() {
+                Ok(ip) => ip,
+                Err(_) => return "ERR: invalid dst_ip\n".to_string(),
+            };
+
+            let query_src_u32 = u32::from(src_ip).to_be();
+            let query_dst_u32 = u32::from(dst_ip).to_be();
+
+            let mut found = Vec::new();
+            let mut ebpf_guard = ebpf.lock().await;
+            if let Ok(session_map) = HashMap::<_, SessionKey, SessionVal>::try_from(
+                ebpf_guard.map_mut("SESSION_MAP").unwrap(),
+            ) {
+                for item in session_map.iter() {
+                    if let Ok((key, val)) = item {
+                        if key.client_ip == query_src_u32 && key.target_ip == query_dst_u32 {
+                            found.push((key, val));
+                        }
+                    }
+                }
+            }
+
+            if found.is_empty() {
+                "NOT_FOUND: No active session matches\n".to_string()
+            } else {
+                let mut output = format!("FOUND: {} sessions\n", found.len());
+                output.push_str("PROTO\tSRC_PORT\tDST_PORT\tNAT_PORT\n");
+                for (key, val) in found {
+                    let proto = if key.proto == 6 { "tcp" } else { "udp" };
+                    output.push_str(&format!(
+                        "{}\t{}\t{}\t{}\n",
+                        proto,
+                        u16::from_be(key.client_port),
+                        u16::from_be(key.target_port),
+                        u16::from_be(val.nat_port)
+                    ));
+                }
+                output
+            }
+        }
         _ => format!("ERR: unknown command {}\n", parts[0]),
     }
 }
@@ -152,6 +202,9 @@ pub async fn run_client(socket_path: &str, command: Command) -> anyhow::Result<(
         Command::List => "LIST\n".to_string(),
         Command::Timeout { proto, seconds } => {
             format!("TIMEOUT {} {}\n", proto, seconds)
+        }
+        Command::QuerySession { src_ip, dst_ip } => {
+            format!("QUERY-SESSION {} {}\n", src_ip, dst_ip)
         }
     };
 

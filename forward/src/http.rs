@@ -10,6 +10,7 @@ use axum::{
     response::Response,
     routing::{delete, get, post},
 };
+use hmac::KeyInit;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::sync::Arc;
@@ -306,20 +307,56 @@ mod tests {
         let signature = hex::encode(mac.finalize().into_bytes());
 
         // 2. Verify valid signature
-        assert!(verify_signature(secret, &timestamp_str, method, path, &signature));
+        assert!(verify_signature(
+            secret,
+            &timestamp_str,
+            method,
+            path,
+            &signature
+        ));
 
         // 3. Verify incorrect signature fails
-        assert!(!verify_signature(secret, &timestamp_str, method, path, "invalid-hex-sig"));
-        assert!(!verify_signature(secret, &timestamp_str, method, path, "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"));
+        assert!(!verify_signature(
+            secret,
+            &timestamp_str,
+            method,
+            path,
+            "invalid-hex-sig"
+        ));
+        assert!(!verify_signature(
+            secret,
+            &timestamp_str,
+            method,
+            path,
+            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+        ));
 
         // 4. Verify incorrect method fails
-        assert!(!verify_signature(secret, &timestamp_str, "POST", path, &signature));
+        assert!(!verify_signature(
+            secret,
+            &timestamp_str,
+            "POST",
+            path,
+            &signature
+        ));
 
         // 5. Verify incorrect path fails
-        assert!(!verify_signature(secret, &timestamp_str, method, "/timeout", &signature));
+        assert!(!verify_signature(
+            secret,
+            &timestamp_str,
+            method,
+            "/timeout",
+            &signature
+        ));
 
         // 6. Verify incorrect secret fails
-        assert!(!verify_signature("wrong-secret", &timestamp_str, method, path, &signature));
+        assert!(!verify_signature(
+            "wrong-secret",
+            &timestamp_str,
+            method,
+            path,
+            &signature
+        ));
 
         // 7. Verify expired timestamp fails (>300 seconds diff)
         let expired_ts = (now - 305).to_string();
@@ -327,7 +364,13 @@ mod tests {
         let mut mac_expired = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac_expired.update(expired_payload.as_bytes());
         let expired_sig = hex::encode(mac_expired.finalize().into_bytes());
-        assert!(!verify_signature(secret, &expired_ts, method, path, &expired_sig));
+        assert!(!verify_signature(
+            secret,
+            &expired_ts,
+            method,
+            path,
+            &expired_sig
+        ));
 
         // 8. Verify future timestamp fails (>300 seconds diff)
         let future_ts = (now + 305).to_string();
@@ -335,7 +378,13 @@ mod tests {
         let mut mac_future = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac_future.update(future_payload.as_bytes());
         let future_sig = hex::encode(mac_future.finalize().into_bytes());
-        assert!(!verify_signature(secret, &future_ts, method, path, &future_sig));
+        assert!(!verify_signature(
+            secret,
+            &future_ts,
+            method,
+            path,
+            &future_sig
+        ));
 
         // 9. Verify marginally valid timestamp succeeds (e.g. 290 seconds diff)
         let border_ts = (now - 290).to_string();
@@ -343,6 +392,12 @@ mod tests {
         let mut mac_border = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac_border.update(border_payload.as_bytes());
         let border_sig = hex::encode(mac_border.finalize().into_bytes());
-        assert!(verify_signature(secret, &border_ts, method, path, &border_sig));
+        assert!(verify_signature(
+            secret,
+            &border_ts,
+            method,
+            path,
+            &border_sig
+        ));
     }
 }

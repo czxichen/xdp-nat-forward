@@ -30,9 +30,18 @@ pub struct ConnectedNode {
     pub ws_sender: SplitSink<WebSocket, Message>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SessionInfo {
+    pub proto: String,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub nat_port: u16,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub nodes: Arc<Mutex<HashMap<String, ConnectedNode>>>,
+    pub pending_queries: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<serde_json::Value>>>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -49,6 +58,13 @@ pub enum ClientMessage {
     Response {
         command_id: String,
         status: String,
+        error_message: Option<String>,
+    },
+    #[serde(rename = "query_response")]
+    QueryResponse {
+        command_id: String,
+        status: String,
+        sessions: Vec<SessionInfo>,
         error_message: Option<String>,
     },
 }

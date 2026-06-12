@@ -68,6 +68,10 @@ pub enum Command {
         proto: String,
         seconds: u64,
     },
+    QuerySession {
+        src_ip: String,
+        dst_ip: String,
+    },
 }
 
 fn load_ebpf() -> anyhow::Result<aya::Ebpf> {
